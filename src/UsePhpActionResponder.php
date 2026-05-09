@@ -104,25 +104,41 @@ final class UsePhpActionResponder
             return null;
         }
 
+        // The responder operates exclusively in snapshot mode — that's the
+        // contract Renderer::renderPartial below assumes (it always builds a
+        // snapshot-backed Renderer and serialises a Snapshot). Allowing a
+        // session/memory action through would mutate state in one storage
+        // and serialise a different one back to the client. Reject early.
+        if ($action->storageType !== null && $action->storageType !== StorageType::Snapshot) {
+            return null;
+        }
+
+        // A signed snapshot is mandatory. Without one, a client could
+        // bootstrap arbitrary state on the server simply by POSTing a
+        // setState — the snapshot is the only thing tying the request to a
+        // previously rendered (and signed) state.
+        if (!\is_string($snapshotJson) || $snapshotJson === '') {
+            return null;
+        }
+
         $serializer = $this->app->getSnapshotSerializer();
 
         // Restore state from the client-supplied snapshot. We do this BEFORE
         // setting RenderContext so the restored state is in the static cache
         // when fc() looks it up by instanceId during the re-render below.
-        if (\is_string($snapshotJson) && $snapshotJson !== '') {
-            try {
-                $snapshot = $serializer->deserialize($snapshotJson);
-                ComponentState::fromSnapshot($snapshot);
-            } catch (SnapshotVerificationException) {
-                return null;
-            }
+        try {
+            $snapshot = $serializer->deserialize($snapshotJson);
+            ComponentState::fromSnapshot($snapshot);
+        } catch (SnapshotVerificationException) {
+            return null;
         }
 
         // Apply the submitted action. Today only setState is supported —
         // the same scope the standalone usePHP runtime handles. Always
-        // target the posted instance id (validated above).
+        // target the posted instance id (validated above) under snapshot
+        // storage (validated above).
         if ($action->type === 'setState') {
-            $state = ComponentState::getInstance($instanceId, $action->storageType ?? StorageType::Snapshot);
+            $state = ComponentState::getInstance($instanceId, StorageType::Snapshot);
             $index = (int) ($action->payload['index'] ?? 0);
             $state->setState($index, $action->payload['value'] ?? null);
         }
@@ -153,19 +169,25 @@ final class UsePhpActionResponder
      * extract the matching `[data-usephp="$instanceId"]` subtree, then emit
      * only its children — usephp.js replaces innerHTML on the existing
      * wrapper, so the wrapper itself must NOT be re-emitted.
+     *
+     * Returns `null` when the wrapper isn't in the rendered tree at all.
+     * Falling back to "render the whole element" in that case would risk
+     * leaking the entire page (e.g. `<html>…</html>`) into a partial
+     * response, which would corrupt the live DOM that usephp.js drops the
+     * fragment into.
      */
-    private function renderPartial(Element $element, string $instanceId): string
+    private function renderPartial(Element $element, string $instanceId): ?string
     {
+        $wrapper = $this->findWrapper($element, $instanceId);
+        if ($wrapper === null) {
+            return null;
+        }
+
         $serializer = $this->app->getSnapshotSerializer();
         $renderer = new Renderer($instanceId, $serializer, StorageType::Snapshot);
 
-        $wrapper = $this->findWrapper($element, $instanceId) ?? $element;
-        $children = $wrapper->type === 'div' && isset($wrapper->props['data-usephp'])
-            ? $wrapper->children
-            : [$wrapper];
-
         $inner = '';
-        foreach ($children as $child) {
+        foreach ($wrapper->children as $child) {
             $inner .= $renderer->renderElement($child);
         }
 

@@ -104,6 +104,55 @@ class UsePhpActionResponderTest extends TestCase
         self::assertNull($partial, 'Snapshots signed with a different secret must be rejected');
     }
 
+    public function testReturnsNullWhenSnapshotMissing(): void
+    {
+        // Without `_usephp_snapshot` a client could bootstrap arbitrary
+        // state on the server with a setState — the snapshot is the only
+        // thing tying the request to a previously signed state.
+        $responder = $this->buildResponder();
+
+        $ro = new HookCounter();
+        $ro->onGet();
+
+        $partial = $responder->handle($ro, [
+            '_usephp_action' => \json_encode([
+                'type' => 'setState',
+                'payload' => ['index' => 0, 'value' => 42],
+                'componentId' => 'hook-counter#0',
+                'storageType' => 'snapshot',
+            ]),
+            '_usephp_component' => 'hook-counter#0',
+            // _usephp_snapshot intentionally omitted
+        ]);
+
+        self::assertNull($partial);
+    }
+
+    public function testReturnsNullForNonSnapshotStorageType(): void
+    {
+        // The responder is snapshot-only — Renderer::renderPartial below
+        // serialises a snapshot. Letting a session-storage action through
+        // would mutate state in one storage and serialise a different one
+        // back to the client.
+        $responder = $this->buildResponder();
+
+        $ro = new HookCounter();
+        $ro->onGet();
+
+        $partial = $responder->handle($ro, [
+            '_usephp_action' => \json_encode([
+                'type' => 'setState',
+                'payload' => ['index' => 0, 'value' => 1],
+                'componentId' => 'hook-counter#0',
+                'storageType' => 'session',
+            ]),
+            '_usephp_component' => 'hook-counter#0',
+            '_usephp_snapshot' => 'unused-because-rejected-first',
+        ]);
+
+        self::assertNull($partial);
+    }
+
     public function testReturnsNullOnComponentIdMismatch(): void
     {
         // The action's componentId must match _usephp_component — otherwise
@@ -123,6 +172,47 @@ class UsePhpActionResponderTest extends TestCase
             ]),
             '_usephp_component' => 'hook-counter#0',
         ]);
+
+        self::assertNull($partial);
+    }
+
+    public function testReturnsNullWhenWrapperNotFoundInRenderedTree(): void
+    {
+        // If the template's render output doesn't include a
+        // `<div data-usephp="$instanceId">` (e.g. the client lies about the
+        // component id), falling back to "render the whole element" would
+        // leak the full page into the partial response. Confirm the
+        // responder bails instead.
+        $secret = 'shared-secret';
+        $usePhp = (new UsePHP())->setSnapshotSecret($secret);
+        $renderer = new UsePhpRenderer(
+            templateDir: $this->templateDir,
+            cacheDir: $this->cacheDir,
+            app: $usePhp,
+        );
+        $responder = new UsePhpActionResponder($renderer);
+
+        // Build a snapshot with a componentId that the template will never
+        // emit. The serializer signs it correctly so signature verification
+        // passes; only findWrapper() will fail.
+        $bogusInstanceId = 'NotARealComponent#0';
+        $snapshot = new Snapshot(
+            componentName: 'NotARealComponent',
+            key: '0',
+            state: [0],
+        );
+        $snapshotJson = $usePhp->getSnapshotSerializer()->serialize($snapshot);
+
+        $partial = $responder->handle($ro = new HookCounter(), [
+            '_usephp_action' => \json_encode([
+                'type' => 'setState',
+                'payload' => ['index' => 0, 'value' => 1],
+                'componentId' => $bogusInstanceId,
+                'storageType' => 'snapshot',
+            ]),
+            '_usephp_component' => $bogusInstanceId,
+            '_usephp_snapshot' => $snapshotJson,
+        ], ['count' => 0, 'next' => 1]);
 
         self::assertNull($partial);
     }
