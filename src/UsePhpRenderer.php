@@ -8,9 +8,11 @@ use BEAR\Resource\RenderInterface;
 use BEAR\Resource\ResourceObject;
 use Polidog\UsePhp\Psx\CompileCommand;
 use Polidog\UsePhp\Psx\Compiler;
+use Polidog\UsePhp\Runtime\ComponentState;
 use Polidog\UsePhp\Runtime\Element;
 use Polidog\UsePhp\Runtime\RenderContext;
 use Polidog\UsePhp\Runtime\Renderer;
+use Polidog\UsePhp\Storage\StorageFactory;
 use Polidog\UsePhp\Storage\StorageType;
 use Polidog\UsePhp\UsePHP;
 use Polidog\UsephpBearRenderer\Annotation\Template;
@@ -116,27 +118,17 @@ final class UsePhpRenderer implements RenderInterface
             return $this->renderElement($result);
         } finally {
             RenderContext::clearApp();
+            // ComponentState and StorageFactory keep process-wide static
+            // caches of component state and the SnapshotStorage singleton.
+            // In long-running PHP workers (Swoole, RoadRunner, FrankenPHP)
+            // those would leak across requests/users; even in classic FPM
+            // they'd bleed across multiple renders inside one request. Each
+            // render embeds its full state into the snapshot anyway, so
+            // dropping the in-memory copy after the wrapper has been
+            // serialised is safe.
+            ComponentState::clearInstances();
+            StorageFactory::reset();
         }
-    }
-
-    /**
-     * Internal helper used by an action responder (or partial rendering
-     * pipeline) to re-render the template after restoring component state
-     * from a snapshot. Returns the rendered HTML for the template's root
-     * element. The caller is responsible for setting up `RenderContext`,
-     * restoring state, and applying the action — this method just renders.
-     *
-     * @param ResourceObject       $ro
-     * @param array<string, mixed> $props
-     */
-    public function renderTemplateOnly(ResourceObject $ro, array $props): string
-    {
-        $template = $this->resolveTemplatePath($ro);
-        if (!\is_file($template)) {
-            throw new \RuntimeException("PSX template not found: $template");
-        }
-        $callable = $this->loadCompiled($template);
-        return $this->renderElement($callable($props));
     }
 
     /**

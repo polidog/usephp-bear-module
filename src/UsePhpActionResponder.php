@@ -11,6 +11,7 @@ use Polidog\UsePhp\Runtime\Element;
 use Polidog\UsePhp\Runtime\RenderContext;
 use Polidog\UsePhp\Runtime\Renderer;
 use Polidog\UsePhp\Snapshot\SnapshotVerificationException;
+use Polidog\UsePhp\Storage\StorageFactory;
 use Polidog\UsePhp\Storage\StorageType;
 use Polidog\UsePhp\UsePHP;
 
@@ -23,7 +24,14 @@ use Polidog\UsePhp\UsePHP;
  * ```php
  * public function onPost(): static
  * {
- *     $partial = $this->responder->handle($this, $_POST);
+ *     // The same prop bag onGet would have set for the post-action render
+ *     // — useState picks up state from the snapshot, but anything OTHER
+ *     // than state (precomputed next/prev, server-derived flags, etc.)
+ *     // still needs to come through props.
+ *     $props = $this->buildProps($newCount);
+ *     $this->body = $props;
+ *
+ *     $partial = $this->responder->handle($this, $_POST, $props);
  *     if ($partial !== null) {
  *         $this->view = $partial;
  *     }
@@ -128,10 +136,20 @@ final class UsePhpActionResponder
         // when fc() looks it up by instanceId during the re-render below.
         try {
             $snapshot = $serializer->deserialize($snapshotJson);
-            ComponentState::fromSnapshot($snapshot);
         } catch (SnapshotVerificationException) {
             return null;
         }
+
+        // The signature only proves we minted this snapshot — it doesn't
+        // tell us WHICH component it was for. A signed snapshot from
+        // /counter (state=[5]) replayed against /todo's wrapper would
+        // otherwise pass and silently overwrite the wrong component's
+        // state. Bind the snapshot to the posted instanceId.
+        if ($snapshot->getInstanceId() !== $instanceId) {
+            return null;
+        }
+
+        ComponentState::fromSnapshot($snapshot);
 
         // Apply the submitted action. Today only setState is supported —
         // the same scope the standalone usePHP runtime handles. Always
@@ -149,14 +167,40 @@ final class UsePhpActionResponder
         try {
             RenderContext::beginRender();
 
-            $template = $this->renderer->resolveTemplate($ro);
+            $template = $this->resolveTemplateOrFail($ro);
             $callable = $this->renderer->loadTemplate($template);
             $element = $callable($props);
 
             return $this->renderPartial($element, $instanceId);
         } finally {
             RenderContext::clearApp();
+            // Snapshot state is now back on the wire; keeping it in the
+            // process-wide ComponentState / SnapshotStorage caches would
+            // leak across requests in long-running workers (Swoole,
+            // RoadRunner, FrankenPHP, …) and across renders inside one
+            // request. Drop it here so each render is a clean slate.
+            ComponentState::clearInstances();
+            StorageFactory::reset();
         }
+    }
+
+    /**
+     * Same path resolution `UsePhpRenderer::render()` uses, but exposed via
+     * the renderer's public helpers and re-emitting the same "template not
+     * found" message so callers see consistent diagnostics whether they
+     * arrived through the GET path or this responder.
+     */
+    private function resolveTemplateOrFail(ResourceObject $ro): string
+    {
+        $template = $this->renderer->resolveTemplate($ro);
+        if (!\is_file($template)) {
+            throw new \RuntimeException(
+                'PSX template not found for ' . $ro::class . ': ' . $template
+                . '. Either create the .psx file, set #[Template(\'...\')] on the resource class, '
+                . 'or pass a custom templateResolver to UsePhpRenderer.'
+            );
+        }
+        return $template;
     }
 
     /**

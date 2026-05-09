@@ -233,16 +233,8 @@ class UsePhpRendererTest extends TestCase
 
     public function testTier3RenderEmitsDataUsePhpWrapperAndSnapshot(): void
     {
-        // Tier 3 needs RenderContext and ComponentState pristine — the
-        // static caches on those are session-scoped, so other tests that
-        // happen to call useState (none today) could otherwise leak in.
-        ComponentState::clearInstances();
-        RenderContext::clearApp();
-        // SnapshotStorage is a process-wide singleton inside StorageFactory,
-        // so clearing ComponentState alone leaves stored state values from
-        // earlier components in place. Reset the factory too.
-        StorageFactory::reset();
-
+        // setUp() already resets usePHP's process-wide caches, so no
+        // per-test cleanup is required here.
         $usePhp = (new UsePHP())->setSnapshotSecret('test-secret');
         $renderer = new UsePhpRenderer(
             templateDir: $this->templateDir,

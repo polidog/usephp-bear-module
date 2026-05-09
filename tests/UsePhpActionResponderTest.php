@@ -153,6 +153,38 @@ class UsePhpActionResponderTest extends TestCase
         self::assertNull($partial);
     }
 
+    public function testReturnsNullOnSnapshotInstanceIdMismatch(): void
+    {
+        // A signed snapshot proves we minted it, not which component it was
+        // for. The responder must reject snapshots whose embedded
+        // componentId doesn't match `_usephp_component`, otherwise an
+        // attacker could replay a /counter snapshot against a /todo
+        // wrapper and quietly overwrite state.
+        $secret = 'shared-secret';
+        $usePhp = (new UsePHP())->setSnapshotSecret($secret);
+        $renderer = new UsePhpRenderer($this->templateDir, $this->cacheDir, app: $usePhp);
+        $responder = new UsePhpActionResponder($renderer);
+
+        // Mint a valid snapshot for a DIFFERENT component, signed with the
+        // SAME secret (so signature verification passes).
+        $foreignSnapshot = $usePhp->getSnapshotSerializer()->serialize(
+            new Snapshot(componentName: 'OtherFC', key: 'other-counter', state: [99])
+        );
+
+        $partial = $responder->handle(new HookCounter(), [
+            '_usephp_action' => \json_encode([
+                'type' => 'setState',
+                'payload' => ['index' => 0, 'value' => 100],
+                'componentId' => 'hook-counter#0',
+                'storageType' => 'snapshot',
+            ]),
+            '_usephp_component' => 'hook-counter#0',
+            '_usephp_snapshot' => $foreignSnapshot,
+        ]);
+
+        self::assertNull($partial);
+    }
+
     public function testReturnsNullOnComponentIdMismatch(): void
     {
         // The action's componentId must match _usephp_component — otherwise
@@ -174,6 +206,41 @@ class UsePhpActionResponderTest extends TestCase
         ]);
 
         self::assertNull($partial);
+    }
+
+    public function testThrowsConsistentErrorWhenTemplateMissing(): void
+    {
+        // The responder should re-emit the same "PSX template not found"
+        // message UsePhpRenderer::render() uses, so the GET path and the
+        // POST path are diagnosable consistently.
+        $usePhp = (new UsePHP())->setSnapshotSecret('s');
+        $renderer = new UsePhpRenderer(
+            templateDir: $this->templateDir . '/no-such-dir',
+            cacheDir: $this->cacheDir,
+            app: $usePhp,
+        );
+        $responder = new UsePhpActionResponder($renderer);
+
+        // Build a valid snapshot so the responder gets past the
+        // signature/instanceId checks and reaches template resolution.
+        $instanceId = 'hook-counter#0';
+        $snapshotJson = $usePhp->getSnapshotSerializer()->serialize(
+            new Snapshot(componentName: 'hook-counter', key: '0', state: [0])
+        );
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('PSX template not found');
+
+        $responder->handle(new HookCounter(), [
+            '_usephp_action' => \json_encode([
+                'type' => 'setState',
+                'payload' => ['index' => 0, 'value' => 1],
+                'componentId' => $instanceId,
+                'storageType' => 'snapshot',
+            ]),
+            '_usephp_component' => $instanceId,
+            '_usephp_snapshot' => $snapshotJson,
+        ]);
     }
 
     public function testReturnsNullWhenWrapperNotFoundInRenderedTree(): void
@@ -239,11 +306,9 @@ class UsePhpActionResponderTest extends TestCase
         self::assertNotSame('', $instanceId);
         self::assertNotSame('', $snapshotJson);
 
-        // Reset between renders — the persistent ComponentState cache would
-        // otherwise carry the prior render's state and confuse the assertion.
-        ComponentState::clearInstances();
-        RenderContext::clearApp();
-        StorageFactory::reset();
+        // The renderer's `renderWithHooks` already drops the in-memory
+        // state in its finally block, so no manual cleanup is needed
+        // between the GET render and the POST handle().
 
         // Simulate the +1 click: setState(0, 6).
         $partial = $responder->handle($ro, [
