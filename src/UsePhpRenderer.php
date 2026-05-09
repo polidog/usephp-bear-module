@@ -63,7 +63,8 @@ final class UsePhpRenderer implements RenderInterface
         if (!\is_file($template)) {
             throw new \RuntimeException(
                 'PSX template not found for ' . $ro::class . ': ' . $template
-                . '. Either create the .psx file or override resolveTemplatePath.'
+                . '. Either create the .psx file, set #[Template(\'...\')] on the resource class, '
+                . 'or pass a custom templateResolver to UsePhpRenderer.'
             );
         }
 

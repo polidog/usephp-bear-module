@@ -115,8 +115,9 @@ final class Counter extends ResourceObject { ... }
 ```
 
 Resolution order:
-1. `#[Template]` on the resource class
-2. FQCN convention (`<templateDir>/<rest-after-Resource\>.psx`)
+1. Custom `templateResolver` closure (when configured on the renderer or module — see "Conventions" below)
+2. `#[Template]` on the resource class
+3. FQCN convention (`<templateDir>/<rest-after-Resource\>.psx`)
 
 Paths in the attribute are resolved relative to `templateDir`. Absolute paths are used as-is.
 
