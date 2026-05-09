@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Polidog\UsephpBearRenderer\Tests\Fixtures\Resource\Page;
+namespace Polidog\UsePhpBearModule\Tests\Fixtures\Resource\Page;
 
 use BEAR\Resource\ResourceObject;
-use Polidog\UsephpBearRenderer\Annotation\Template;
+use Polidog\UsePhpBearModule\Annotation\Template;
 
 #[Template('shared/Counter.psx')]
 final class CustomCounter extends ResourceObject

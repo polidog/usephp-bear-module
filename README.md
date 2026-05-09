@@ -1,4 +1,4 @@
-# usephp-bear-renderer
+# Polidog.UsePhpBearModule
 
 Render BEAR.Resource `ResourceObject`s using [polidog/use-php](https://github.com/polidog/usePHP)'s PSX (TSX-like) templates.
 
@@ -7,7 +7,7 @@ A drop-in `BEAR\Resource\RenderInterface` adapter — your BEAR resources stay s
 ## Installation
 
 ```bash
-composer require polidog/usephp-bear-renderer
+composer require polidog/usephp-bear-module
 ```
 
 PHP 8.5+. Requires `bear/resource ^1.20` and `polidog/use-php` (currently `dev-main` until the next tagged release).
@@ -41,7 +41,7 @@ The template is a callable that takes the resource's `$body` (as `array $props`)
 ### 2. Wire the module in your BEAR app
 
 ```php
-use Polidog\UsephpBearRenderer\Module\UsePhpRendererModule;
+use Polidog\UsePhpBearModule\Module\UsePhpRendererModule;
 
 protected function configure(): void
 {
@@ -108,7 +108,7 @@ new UsePhpRenderer(
 Convention is FQCN-based, but you can pin a specific template via the `#[Template]` attribute — same idea as BEAR's other declarative attributes (`#[Embed]`, `#[Link]`, `#[Cacheable]` …).
 
 ```php
-use Polidog\UsephpBearRenderer\Annotation\Template;
+use Polidog\UsePhpBearModule\Annotation\Template;
 
 #[Template('shared/Counter.psx')]
 final class Counter extends ResourceObject { ... }

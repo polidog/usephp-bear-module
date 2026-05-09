@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Polidog\UsephpBearRenderer\Annotation;
+namespace Polidog\UsePhpBearModule\Annotation;
 
 use Attribute;
 

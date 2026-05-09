@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Polidog\UsephpBearRenderer;
+namespace Polidog\UsePhpBearModule;
 
 use BEAR\Resource\RenderInterface;
 use BEAR\Resource\ResourceObject;
@@ -15,7 +15,7 @@ use Polidog\UsePhp\Runtime\Renderer;
 use Polidog\UsePhp\Storage\StorageFactory;
 use Polidog\UsePhp\Storage\StorageType;
 use Polidog\UsePhp\UsePHP;
-use Polidog\UsephpBearRenderer\Annotation\Template;
+use Polidog\UsePhpBearModule\Annotation\Template;
 
 /**
  * Render BEAR.Resource ResourceObjects via polidog/use-php's PSX templates.

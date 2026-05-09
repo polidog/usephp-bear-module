@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Polidog\UsephpBearRenderer\Tests\Fixtures\Resource\Page;
+namespace Polidog\UsePhpBearModule\Tests\Fixtures\Resource\Page;
 
 use BEAR\Resource\ResourceObject;
 

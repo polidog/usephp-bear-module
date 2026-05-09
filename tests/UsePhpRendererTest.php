@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Polidog\UsephpBearRenderer\Tests;
+namespace Polidog\UsePhpBearModule\Tests;
 
 use PHPUnit\Framework\TestCase;
 use Polidog\UsePhp\Psx\CompileCommand;
@@ -11,10 +11,10 @@ use Polidog\UsePhp\Runtime\ComponentState;
 use Polidog\UsePhp\Runtime\RenderContext;
 use Polidog\UsePhp\Storage\StorageFactory;
 use Polidog\UsePhp\UsePHP;
-use Polidog\UsephpBearRenderer\Tests\Fixtures\Resource\Page\Counter;
-use Polidog\UsephpBearRenderer\Tests\Fixtures\Resource\Page\CustomCounter;
-use Polidog\UsephpBearRenderer\Tests\Fixtures\Resource\Page\HookCounter;
-use Polidog\UsephpBearRenderer\UsePhpRenderer;
+use Polidog\UsePhpBearModule\Tests\Fixtures\Resource\Page\Counter;
+use Polidog\UsePhpBearModule\Tests\Fixtures\Resource\Page\CustomCounter;
+use Polidog\UsePhpBearModule\Tests\Fixtures\Resource\Page\HookCounter;
+use Polidog\UsePhpBearModule\UsePhpRenderer;
 
 class UsePhpRendererTest extends TestCase
 {

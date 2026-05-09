@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Polidog\UsephpBearRenderer\Module;
+namespace Polidog\UsePhpBearModule\Module;
 
 use BEAR\Resource\RenderInterface;
-use Polidog\UsephpBearRenderer\UsePhpRenderer;
+use Polidog\UsePhpBearModule\UsePhpRenderer;
 use Ray\Di\AbstractModule;
 use Ray\Di\Scope;
 

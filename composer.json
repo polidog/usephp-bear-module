@@ -1,16 +1,16 @@
 {
-    "name": "polidog/usephp-bear-renderer",
-    "description": "BEAR.Resource RenderInterface adapter that renders PSX (TSX-like) templates from polidog/use-php",
+    "name": "polidog/usephp-bear-module",
+    "description": "BEAR.Sunday module that renders ResourceObjects via polidog/use-php's PSX (TSX-like) templates",
     "type": "library",
     "license": "MIT",
     "autoload": {
         "psr-4": {
-            "Polidog\\UsephpBearRenderer\\": "src/"
+            "Polidog\\UsePhpBearModule\\": "src/"
         }
     },
     "autoload-dev": {
         "psr-4": {
-            "Polidog\\UsephpBearRenderer\\Tests\\": "tests/"
+            "Polidog\\UsePhpBearModule\\Tests\\": "tests/"
         }
     },
     "authors": [

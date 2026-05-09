@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Polidog\UsephpBearRenderer;
+namespace Polidog\UsePhpBearModule;
 
 use BEAR\Resource\ResourceObject;
 use Polidog\UsePhp\Runtime\Action;

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Polidog\UsephpBearRenderer\Tests;
+namespace Polidog\UsePhpBearModule\Tests;
 
 use PHPUnit\Framework\TestCase;
 use Polidog\UsePhp\Runtime\ComponentState;
@@ -10,9 +10,9 @@ use Polidog\UsePhp\Runtime\RenderContext;
 use Polidog\UsePhp\Runtime\Snapshot;
 use Polidog\UsePhp\Storage\StorageFactory;
 use Polidog\UsePhp\UsePHP;
-use Polidog\UsephpBearRenderer\Tests\Fixtures\Resource\Page\HookCounter;
-use Polidog\UsephpBearRenderer\UsePhpActionResponder;
-use Polidog\UsephpBearRenderer\UsePhpRenderer;
+use Polidog\UsePhpBearModule\Tests\Fixtures\Resource\Page\HookCounter;
+use Polidog\UsePhpBearModule\UsePhpActionResponder;
+use Polidog\UsePhpBearModule\UsePhpRenderer;
 
 class UsePhpActionResponderTest extends TestCase
 {
