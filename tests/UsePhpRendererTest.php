@@ -7,6 +7,8 @@ namespace Polidog\UsephpBearRenderer\Tests;
 use PHPUnit\Framework\TestCase;
 use Polidog\UsePhp\Psx\CompileCommand;
 use Polidog\UsephpBearRenderer\Tests\Fixtures\Resource\Page\Counter;
+use Polidog\UsephpBearRenderer\Tests\Fixtures\Resource\Page\CustomCounter;
+use Polidog\UsephpBearRenderer\Tests\Fixtures\Resource\Page\MethodOverride;
 use Polidog\UsephpBearRenderer\UsePhpRenderer;
 
 class UsePhpRendererTest extends TestCase
@@ -110,6 +112,33 @@ class UsePhpRendererTest extends TestCase
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('Compiled PSX template missing');
         $renderer->render($ro);
+    }
+
+    public function testTemplateAttributeOverridesConvention(): void
+    {
+        $renderer = new UsePhpRenderer($this->templateDir, $this->cacheDir);
+        $ro = new CustomCounter();
+        $ro->onGet(initial: 7);
+        $html = $renderer->render($ro);
+
+        // The class is `Page\CustomCounter` (would default to
+        // Page/CustomCounter.psx) but #[Template('shared/Counter.psx')]
+        // redirects to the shared template.
+        self::assertStringContainsString('SHARED-COUNTER', $html);
+        self::assertStringContainsString('<p>7</p>', $html);
+    }
+
+    public function testMethodLevelTemplateAttributeBeatsClassLevel(): void
+    {
+        $renderer = new UsePhpRenderer($this->templateDir, $this->cacheDir);
+        $ro = new MethodOverride();
+        $ro->onGet();
+        $html = $renderer->render($ro);
+
+        // class-level says `class-level.psx` (which doesn't exist) but the
+        // method-level attribute on onGet wins, picking shared/Counter.psx.
+        self::assertStringContainsString('SHARED-COUNTER', $html);
+        self::assertStringContainsString('<p>99</p>', $html);
     }
 
     public function testThrowsWhenTemplateMissing(): void

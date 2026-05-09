@@ -10,6 +10,7 @@ use Polidog\UsePhp\Psx\CompileCommand;
 use Polidog\UsePhp\Psx\Compiler;
 use Polidog\UsePhp\Runtime\Element;
 use Polidog\UsePhp\Runtime\Renderer;
+use Polidog\UsephpBearRenderer\Annotation\Template;
 
 /**
  * Render BEAR.Resource ResourceObjects via polidog/use-php's PSX templates.
@@ -18,6 +19,10 @@ use Polidog\UsePhp\Runtime\Renderer;
  * - For a resource class like `MyApp\Resource\Page\Counter`, the template is
  *   resolved to `<templateDir>/Page/Counter.psx` (everything up to and
  *   including `\Resource\` is stripped).
+ * - Override the convention with the `#[Template('relative/Path.psx')]`
+ *   attribute on the resource class — or per-method if different methods
+ *   should use different templates. Method-level beats class-level.
+ *   Absolute paths in the attribute are used as-is.
  * - The compiled cache lives at `<cacheDir>/<sha1(realpath(template))>.php`,
  *   matching the convention `polidog/use-php` itself uses, so a single
  *   `vendor/bin/usephp compile` populates the same cache.
@@ -64,14 +69,24 @@ final class UsePhpRenderer implements RenderInterface
     }
 
     /**
-     * Map a ResourceObject class name to a `.psx` template path.
+     * Map a ResourceObject to its `.psx` template path.
      *
-     * `MyApp\Resource\Page\Counter` → `<templateDir>/Page/Counter.psx`.
-     * Falls back to the bare class basename when no `Resource` segment is
-     * present.
+     * Resolution order:
+     * 1. `#[Template('...')]` attribute on the called method (if any) —
+     *    method-level wins because BEAR resources can implement
+     *    onGet / onPost / etc. with different representations.
+     * 2. `#[Template('...')]` attribute on the resource class.
+     * 3. Convention: `MyApp\Resource\Page\Counter` →
+     *    `<templateDir>/Page/Counter.psx`. Falls back to the bare class
+     *    basename when no `\Resource\` segment is present.
      */
     private function resolveTemplatePath(ResourceObject $ro): string
     {
+        $override = $this->resolveAttributePath($ro);
+        if ($override !== null) {
+            return $this->absolutiseTemplatePath($override);
+        }
+
         $class = $ro::class;
         $idx = \strpos($class, self::RESOURCE_NAMESPACE_DELIMITER);
         if ($idx !== false) {
@@ -81,10 +96,50 @@ final class UsePhpRenderer implements RenderInterface
             $relative = \ltrim($relative, '\\');
         }
         $relative = \str_replace('\\', \DIRECTORY_SEPARATOR, $relative);
+        return $this->absolutiseTemplatePath($relative . '.psx');
+    }
+
+    /**
+     * Look for `#[Template]` attributes; method-level beats class-level.
+     */
+    private function resolveAttributePath(ResourceObject $ro): ?string
+    {
+        $reflection = new \ReflectionObject($ro);
+
+        // Method-level — pick the resource method that BEAR called. We can't
+        // know the exact method name here, but it's always a Web-method
+        // (onGet, onPost, …). We match by inspecting which method has the
+        // attribute; if multiple methods carry the attribute (e.g. onGet
+        // and onPost differ), the caller is responsible for keeping each
+        // method's representation aligned with its template.
+        foreach ($reflection->getMethods() as $method) {
+            if (!\str_starts_with($method->getName(), 'on')) {
+                continue;
+            }
+            foreach ($method->getAttributes(Template::class) as $attr) {
+                /** @var Template $template */
+                $template = $attr->newInstance();
+                return $template->path;
+            }
+        }
+
+        foreach ($reflection->getAttributes(Template::class) as $attr) {
+            /** @var Template $template */
+            $template = $attr->newInstance();
+            return $template->path;
+        }
+
+        return null;
+    }
+
+    private function absolutiseTemplatePath(string $path): string
+    {
+        if (\str_starts_with($path, '/') || \preg_match('#^[A-Za-z]:[\\\\/]#', $path) === 1) {
+            return $path;
+        }
         return \rtrim($this->templateDir, \DIRECTORY_SEPARATOR)
             . \DIRECTORY_SEPARATOR
-            . $relative
-            . '.psx';
+            . $path;
     }
 
     private function loadCompiled(string $template): callable

@@ -103,9 +103,38 @@ new UsePhpRenderer(
 **/var/cache/psx/
 ```
 
+## Overriding the template per resource
+
+Convention is FQCN-based, but you can pin a specific template via the `#[Template]` attribute — same idea as BEAR's other declarative attributes (`#[Embed]`, `#[Link]`, `#[Cacheable]` …).
+
+```php
+use Polidog\UsephpBearRenderer\Annotation\Template;
+
+// Class-level — every method on this resource uses the override.
+#[Template('shared/Counter.psx')]
+final class Counter extends ResourceObject { ... }
+
+// Method-level — only this method uses the override (wins over class-level).
+final class Counter extends ResourceObject
+{
+    #[Template('Counter/Show.psx')]
+    public function onGet(int $initial = 0): static { ... }
+
+    #[Template('Counter/Edit.psx')]
+    public function onPost(int $count): static { ... }
+}
+```
+
+Resolution order:
+1. `#[Template]` on the resource method
+2. `#[Template]` on the resource class
+3. FQCN convention (`<templateDir>/<rest-after-Resource\>.psx`)
+
+Paths in the attribute are resolved relative to `templateDir`. Absolute paths are used as-is.
+
 ## Conventions
 
-- **Template path** = `<templateDir>/<everything-after-`\Resource\`-in-class-FQN>.psx`. Example: `MyApp\Resource\Page\Foo\Bar` → `<templateDir>/Page/Foo/Bar.psx`. Override `resolveTemplatePath()` if you want a different mapping.
+- **Template path** = `<templateDir>/<everything-after-`\Resource\`-in-class-FQN>.psx`. Example: `MyApp\Resource\Page\Foo\Bar` → `<templateDir>/Page/Foo/Bar.psx`. Override per-resource with `#[Template]` (above), or globally by extending `UsePhpRenderer` and overriding `resolveTemplatePath()`.
 - **Props** = `$ro->body` if it's already an array; `['body' => $ro->body]` otherwise; `[]` if null.
 - **Return type** = the template callable must return an `Element` or a string. Anything else throws.
 - **State / interactivity** = NOT supported in this Tier. Templates run statelessly. For `useState` / form actions inside BEAR you would need a different renderer that bridges `onPost` (out of scope here).

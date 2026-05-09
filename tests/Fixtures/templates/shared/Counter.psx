@@ -1,0 +1,13 @@
+<?php
+
+declare(strict_types=1);
+
+use Polidog\UsePhp\Html\H;
+use Polidog\UsePhp\Runtime\Element;
+
+return function (array $props): Element {
+    return <div className="shared-counter">
+        <h2>SHARED-COUNTER</h2>
+        <p>{(string) ($props['count'] ?? 0)}</p>
+    </div>;
+};
