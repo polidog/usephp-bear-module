@@ -110,31 +110,22 @@ Convention is FQCN-based, but you can pin a specific template via the `#[Templat
 ```php
 use Polidog\UsephpBearRenderer\Annotation\Template;
 
-// Class-level — every method on this resource uses the override.
 #[Template('shared/Counter.psx')]
 final class Counter extends ResourceObject { ... }
-
-// Method-level — only this method uses the override (wins over class-level).
-final class Counter extends ResourceObject
-{
-    #[Template('Counter/Show.psx')]
-    public function onGet(int $initial = 0): static { ... }
-
-    #[Template('Counter/Edit.psx')]
-    public function onPost(int $count): static { ... }
-}
 ```
 
 Resolution order:
-1. `#[Template]` on the resource method
-2. `#[Template]` on the resource class
-3. FQCN convention (`<templateDir>/<rest-after-Resource\>.psx`)
+1. `#[Template]` on the resource class
+2. FQCN convention (`<templateDir>/<rest-after-Resource\>.psx`)
 
 Paths in the attribute are resolved relative to `templateDir`. Absolute paths are used as-is.
 
+The attribute is **class-level only**. `BEAR\Resource\RenderInterface::render($ro)` doesn't tell the renderer which `on*` method was invoked, so a method-level attribute (e.g. one `#[Template]` on `onGet` and a different one on `onPost`) can't be resolved reliably. If you need different templates per HTTP verb, expose distinct resources.
+
 ## Conventions
 
-- **Template path** = `<templateDir>/<everything-after-`\Resource\`-in-class-FQN>.psx`. Example: `MyApp\Resource\Page\Foo\Bar` → `<templateDir>/Page/Foo/Bar.psx`. Override per-resource with `#[Template]` (above), or globally by extending `UsePhpRenderer` and overriding `resolveTemplatePath()`.
+- **Template path** = `<templateDir>/<everything-after-`\Resource\`-in-class-FQN>.psx`. Example: `MyApp\Resource\Page\Foo\Bar` → `<templateDir>/Page/Foo/Bar.psx`. Override per-resource with `#[Template]` (above).
+- **Custom resolution** — `UsePhpRenderer` is `final`, so wrap rather than subclass. Implement `BEAR\Resource\RenderInterface` in your own class and delegate to a `UsePhpRenderer` instance, intercepting `resolveTemplatePath` logic at the wrapper layer. Bind your wrapper instead of the default in your DI module.
 - **Props** = `$ro->body` if it's already an array; `['body' => $ro->body]` otherwise; `[]` if null.
 - **Return type** = the template callable must return an `Element` or a string. Anything else throws.
 - **State / interactivity** = NOT supported in this Tier. Templates run statelessly. For `useState` / form actions inside BEAR you would need a different renderer that bridges `onPost` (out of scope here).

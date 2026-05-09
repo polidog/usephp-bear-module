@@ -20,9 +20,8 @@ use Polidog\UsephpBearRenderer\Annotation\Template;
  *   resolved to `<templateDir>/Page/Counter.psx` (everything up to and
  *   including `\Resource\` is stripped).
  * - Override the convention with the `#[Template('relative/Path.psx')]`
- *   attribute on the resource class — or per-method if different methods
- *   should use different templates. Method-level beats class-level.
- *   Absolute paths in the attribute are used as-is.
+ *   attribute on the resource class. Absolute paths in the attribute are
+ *   used as-is.
  * - The compiled cache lives at `<cacheDir>/<sha1(realpath(template))>.php`,
  *   matching the convention `polidog/use-php` itself uses, so a single
  *   `vendor/bin/usephp compile` populates the same cache.
@@ -72,13 +71,15 @@ final class UsePhpRenderer implements RenderInterface
      * Map a ResourceObject to its `.psx` template path.
      *
      * Resolution order:
-     * 1. `#[Template('...')]` attribute on the called method (if any) —
-     *    method-level wins because BEAR resources can implement
-     *    onGet / onPost / etc. with different representations.
-     * 2. `#[Template('...')]` attribute on the resource class.
-     * 3. Convention: `MyApp\Resource\Page\Counter` →
+     * 1. `#[Template('...')]` attribute on the resource class.
+     * 2. Convention: `MyApp\Resource\Page\Counter` →
      *    `<templateDir>/Page/Counter.psx`. Falls back to the bare class
      *    basename when no `\Resource\` segment is present.
+     *
+     * Method-level overrides are intentionally not supported: BEAR's
+     * RenderInterface::render($ro) doesn't expose which `on*` method was
+     * invoked, so the renderer can't reliably select between multiple
+     * method-level attributes.
      */
     private function resolveTemplatePath(ResourceObject $ro): string
     {
@@ -99,37 +100,15 @@ final class UsePhpRenderer implements RenderInterface
         return $this->absolutiseTemplatePath($relative . '.psx');
     }
 
-    /**
-     * Look for `#[Template]` attributes; method-level beats class-level.
-     */
     private function resolveAttributePath(ResourceObject $ro): ?string
     {
-        $reflection = new \ReflectionObject($ro);
-
-        // Method-level — pick the resource method that BEAR called. We can't
-        // know the exact method name here, but it's always a Web-method
-        // (onGet, onPost, …). We match by inspecting which method has the
-        // attribute; if multiple methods carry the attribute (e.g. onGet
-        // and onPost differ), the caller is responsible for keeping each
-        // method's representation aligned with its template.
-        foreach ($reflection->getMethods() as $method) {
-            if (!\str_starts_with($method->getName(), 'on')) {
-                continue;
-            }
-            foreach ($method->getAttributes(Template::class) as $attr) {
-                /** @var Template $template */
-                $template = $attr->newInstance();
-                return $template->path;
-            }
+        $attrs = (new \ReflectionObject($ro))->getAttributes(Template::class);
+        if ($attrs === []) {
+            return null;
         }
-
-        foreach ($reflection->getAttributes(Template::class) as $attr) {
-            /** @var Template $template */
-            $template = $attr->newInstance();
-            return $template->path;
-        }
-
-        return null;
+        /** @var Template $template */
+        $template = $attrs[0]->newInstance();
+        return $template->path;
     }
 
     private function absolutiseTemplatePath(string $path): string
