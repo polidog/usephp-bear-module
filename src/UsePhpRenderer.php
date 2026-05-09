@@ -10,6 +10,7 @@ use Polidog\UsePhp\Psx\CompileCommand;
 use Polidog\UsePhp\Psx\Compiler;
 use Polidog\UsePhp\Runtime\Element;
 use Polidog\UsePhp\Runtime\Renderer;
+use Polidog\UsephpBearRenderer\Annotation\Template;
 
 /**
  * Render BEAR.Resource ResourceObjects via polidog/use-php's PSX templates.
@@ -18,6 +19,9 @@ use Polidog\UsePhp\Runtime\Renderer;
  * - For a resource class like `MyApp\Resource\Page\Counter`, the template is
  *   resolved to `<templateDir>/Page/Counter.psx` (everything up to and
  *   including `\Resource\` is stripped).
+ * - Override the convention with the `#[Template('relative/Path.psx')]`
+ *   attribute on the resource class. Absolute paths in the attribute are
+ *   used as-is.
  * - The compiled cache lives at `<cacheDir>/<sha1(realpath(template))>.php`,
  *   matching the convention `polidog/use-php` itself uses, so a single
  *   `vendor/bin/usephp compile` populates the same cache.
@@ -35,10 +39,22 @@ final class UsePhpRenderer implements RenderInterface
 {
     private const RESOURCE_NAMESPACE_DELIMITER = '\\Resource\\';
 
+    /** @var array<class-string, string|null> Cached `#[Template]` paths per resource class */
+    private array $attributePathCache = [];
+
+    /**
+     * @param (\Closure(ResourceObject): string)|null $templateResolver
+     *        Optional custom resolver. Receives the ResourceObject and must
+     *        return either a path relative to `$templateDir` or an absolute
+     *        path. Bypasses both the `#[Template]` attribute and the FQCN
+     *        convention. Useful when the default rules don't fit (e.g. you
+     *        want a database-driven mapping).
+     */
     public function __construct(
         private readonly string $templateDir,
         private readonly string $cacheDir,
         private readonly bool $autoCompile = true,
+        private readonly ?\Closure $templateResolver = null,
     ) {}
 
     public function render(ResourceObject $ro): string
@@ -47,7 +63,8 @@ final class UsePhpRenderer implements RenderInterface
         if (!\is_file($template)) {
             throw new \RuntimeException(
                 'PSX template not found for ' . $ro::class . ': ' . $template
-                . '. Either create the .psx file or override resolveTemplatePath.'
+                . '. Either create the .psx file, set #[Template(\'...\')] on the resource class, '
+                . 'or pass a custom templateResolver to UsePhpRenderer.'
             );
         }
 
@@ -64,14 +81,31 @@ final class UsePhpRenderer implements RenderInterface
     }
 
     /**
-     * Map a ResourceObject class name to a `.psx` template path.
+     * Map a ResourceObject to its `.psx` template path.
      *
-     * `MyApp\Resource\Page\Counter` → `<templateDir>/Page/Counter.psx`.
-     * Falls back to the bare class basename when no `Resource` segment is
-     * present.
+     * Resolution order:
+     * 1. Custom `$templateResolver` callable from the constructor (if any).
+     * 2. `#[Template('...')]` attribute on the resource class.
+     * 3. Convention: `MyApp\Resource\Page\Counter` →
+     *    `<templateDir>/Page/Counter.psx`. Falls back to the bare class
+     *    basename when no `\Resource\` segment is present.
+     *
+     * Method-level overrides are intentionally not supported: BEAR's
+     * RenderInterface::render($ro) doesn't expose which `on*` method was
+     * invoked, so the renderer can't reliably select between multiple
+     * method-level attributes.
      */
     private function resolveTemplatePath(ResourceObject $ro): string
     {
+        if ($this->templateResolver !== null) {
+            return $this->absolutiseTemplatePath(($this->templateResolver)($ro));
+        }
+
+        $override = $this->resolveAttributePath($ro);
+        if ($override !== null) {
+            return $this->absolutiseTemplatePath($override);
+        }
+
         $class = $ro::class;
         $idx = \strpos($class, self::RESOURCE_NAMESPACE_DELIMITER);
         if ($idx !== false) {
@@ -81,10 +115,52 @@ final class UsePhpRenderer implements RenderInterface
             $relative = \ltrim($relative, '\\');
         }
         $relative = \str_replace('\\', \DIRECTORY_SEPARATOR, $relative);
+        return $this->absolutiseTemplatePath($relative . '.psx');
+    }
+
+    private function resolveAttributePath(ResourceObject $ro): ?string
+    {
+        $class = $ro::class;
+        if (\array_key_exists($class, $this->attributePathCache)) {
+            return $this->attributePathCache[$class];
+        }
+
+        $attrs = (new \ReflectionClass($class))->getAttributes(Template::class);
+        if ($attrs === []) {
+            return $this->attributePathCache[$class] = null;
+        }
+        /** @var Template $template */
+        $template = $attrs[0]->newInstance();
+        return $this->attributePathCache[$class] = $template->path;
+    }
+
+    private function absolutiseTemplatePath(string $path): string
+    {
+        if ($this->isAbsolutePath($path)) {
+            return $path;
+        }
         return \rtrim($this->templateDir, \DIRECTORY_SEPARATOR)
             . \DIRECTORY_SEPARATOR
-            . $relative
-            . '.psx';
+            . $path;
+    }
+
+    /**
+     * Treat as absolute:
+     * - POSIX:    leading `/`
+     * - Windows:  drive-letter root (`C:\` or `C:/`)
+     * - Windows:  rooted path with leading backslash (`\foo`)
+     * - Windows:  UNC path (`\\server\share` — also matched by leading backslash check)
+     */
+    private function isAbsolutePath(string $path): bool
+    {
+        if ($path === '') {
+            return false;
+        }
+        $first = $path[0];
+        if ($first === '/' || $first === '\\') {
+            return true;
+        }
+        return \preg_match('#^[A-Za-z]:[\\\\/]#', $path) === 1;
     }
 
     private function loadCompiled(string $template): callable

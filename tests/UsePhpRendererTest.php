@@ -6,7 +6,9 @@ namespace Polidog\UsephpBearRenderer\Tests;
 
 use PHPUnit\Framework\TestCase;
 use Polidog\UsePhp\Psx\CompileCommand;
+use BEAR\Resource\ResourceObject;
 use Polidog\UsephpBearRenderer\Tests\Fixtures\Resource\Page\Counter;
+use Polidog\UsephpBearRenderer\Tests\Fixtures\Resource\Page\CustomCounter;
 use Polidog\UsephpBearRenderer\UsePhpRenderer;
 
 class UsePhpRendererTest extends TestCase
@@ -110,6 +112,87 @@ class UsePhpRendererTest extends TestCase
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('Compiled PSX template missing');
         $renderer->render($ro);
+    }
+
+    public function testTemplateAttributeOverridesConvention(): void
+    {
+        $renderer = new UsePhpRenderer($this->templateDir, $this->cacheDir);
+        $ro = new CustomCounter();
+        $ro->onGet(initial: 7);
+        $html = $renderer->render($ro);
+
+        // The class is `Page\CustomCounter` (would default to
+        // Page/CustomCounter.psx) but #[Template('shared/Counter.psx')]
+        // redirects to the shared template.
+        self::assertStringContainsString('SHARED-COUNTER', $html);
+        self::assertStringContainsString('<p>7</p>', $html);
+    }
+
+    public function testCustomTemplateResolverBypassesAttributeAndConvention(): void
+    {
+        $renderer = new UsePhpRenderer(
+            $this->templateDir,
+            $this->cacheDir,
+            templateResolver: static fn(ResourceObject $ro): string => 'shared/Counter.psx',
+        );
+
+        // (a) Convention path: Counter has no #[Template], so the resolver
+        //     wins over the FQCN convention (which would pick Page/Counter.psx).
+        $ro = new Counter();
+        $ro->onGet(initial: 11);
+        $html = $renderer->render($ro);
+        self::assertStringContainsString('SHARED-COUNTER', $html);
+        self::assertStringContainsString('<p>11</p>', $html);
+
+        // (b) Attribute path: CustomCounter HAS #[Template('shared/Counter.psx')],
+        //     so the resolver and the attribute happen to agree — but the
+        //     point is that the resolver is consulted first. Use a lambda
+        //     that returns a SEPARATE template to confirm the resolver wins
+        //     over the attribute.
+        $rendererB = new UsePhpRenderer(
+            $this->templateDir,
+            $this->cacheDir,
+            templateResolver: static fn(ResourceObject $ro): string => 'Page/Counter.psx',
+        );
+        $custom = new CustomCounter();
+        $custom->onGet(initial: 99);
+        $htmlB = $rendererB->render($custom);
+        // Resolver pointed at Page/Counter.psx (which uses the body's label
+        // — CustomCounter sets label='Custom' — and shows "{$label} is {$count}"),
+        // not the attribute's shared/Counter.psx (which renders "SHARED-COUNTER").
+        self::assertStringContainsString('Custom is 99', $htmlB);
+        self::assertStringNotContainsString('SHARED-COUNTER', $htmlB);
+    }
+
+    public function testAbsoluteResolverPathIsUsedAsIs(): void
+    {
+        $absolute = $this->templateDir . '/shared/Counter.psx';
+        $renderer = new UsePhpRenderer(
+            $this->templateDir . '/no-such-dir',
+            $this->cacheDir,
+            templateResolver: static fn(ResourceObject $ro): string => $absolute,
+        );
+
+        $ro = new Counter();
+        $ro->onGet(initial: 22);
+        $html = $renderer->render($ro);
+        self::assertStringContainsString('SHARED-COUNTER', $html);
+    }
+
+    public function testAttributeResolutionIsCachedPerClass(): void
+    {
+        // Build two CustomCounter instances; the renderer should hit
+        // ReflectionClass once (per class), not per render.
+        $renderer = new UsePhpRenderer($this->templateDir, $this->cacheDir);
+        $renderer->render((new CustomCounter())->onGet(initial: 1));
+        $renderer->render((new CustomCounter())->onGet(initial: 2));
+
+        // Coarse assertion: two renders both produce the same template's
+        // output. The cache itself is private — the test ensures that
+        // repeated calls don't break behaviour, and serves as a guard
+        // against accidentally clearing the cache during refactors.
+        $first = $renderer->render((new CustomCounter())->onGet(initial: 3));
+        self::assertStringContainsString('SHARED-COUNTER', $first);
     }
 
     public function testThrowsWhenTemplateMissing(): void

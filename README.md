@@ -103,9 +103,43 @@ new UsePhpRenderer(
 **/var/cache/psx/
 ```
 
+## Overriding the template per resource
+
+Convention is FQCN-based, but you can pin a specific template via the `#[Template]` attribute — same idea as BEAR's other declarative attributes (`#[Embed]`, `#[Link]`, `#[Cacheable]` …).
+
+```php
+use Polidog\UsephpBearRenderer\Annotation\Template;
+
+#[Template('shared/Counter.psx')]
+final class Counter extends ResourceObject { ... }
+```
+
+Resolution order:
+1. Custom `templateResolver` closure (when configured on the renderer or module — see "Conventions" below)
+2. `#[Template]` on the resource class
+3. FQCN convention (`<templateDir>/<rest-after-Resource\>.psx`)
+
+Paths in the attribute are resolved relative to `templateDir`. Absolute paths are used as-is.
+
+The attribute is **class-level only**. `BEAR\Resource\RenderInterface::render($ro)` doesn't tell the renderer which `on*` method was invoked, so a method-level attribute (e.g. one `#[Template]` on `onGet` and a different one on `onPost`) can't be resolved reliably. If you need different templates per HTTP verb, expose distinct resources.
+
 ## Conventions
 
-- **Template path** = `<templateDir>/<everything-after-`\Resource\`-in-class-FQN>.psx`. Example: `MyApp\Resource\Page\Foo\Bar` → `<templateDir>/Page/Foo/Bar.psx`. Override `resolveTemplatePath()` if you want a different mapping.
+- **Template path** = `<templateDir>/<everything-after-`\Resource\`-in-class-FQN>.psx`. Example: `MyApp\Resource\Page\Foo\Bar` → `<templateDir>/Page/Foo/Bar.psx`. Override per-resource with `#[Template]` (above).
+- **Custom resolution** — pass a `templateResolver` closure to `UsePhpRenderer` (or `UsePhpRendererModule`) to bypass the default `#[Template]` + FQCN logic entirely. The closure receives the `ResourceObject` and returns a path (relative to `templateDir` or absolute):
+
+  ```php
+  $this->install(new UsePhpRendererModule(
+      templateDir: $appMeta->appDir . '/templates',
+      cacheDir:    $appMeta->tmpDir . '/psx',
+      templateResolver: static function (\BEAR\Resource\ResourceObject $ro): string {
+          // e.g. database lookup, manifest, format suffix, ...
+          return $ro instanceof MyApp\Resource\Page\Counter ? 'shared/Counter.psx' : 'default.psx';
+      },
+  ));
+  ```
+
+  When set, the resolver fully replaces both `#[Template]` and the FQCN convention. Useful when you need a database-driven or context-aware mapping. `UsePhpRenderer` itself is `final` — extension is via this hook, not subclassing.
 - **Props** = `$ro->body` if it's already an array; `['body' => $ro->body]` otherwise; `[]` if null.
 - **Return type** = the template callable must return an `Element` or a string. Anything else throws.
 - **State / interactivity** = NOT supported in this Tier. Templates run statelessly. For `useState` / form actions inside BEAR you would need a different renderer that bridges `onPost` (out of scope here).
