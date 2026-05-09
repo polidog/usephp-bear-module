@@ -23,7 +23,7 @@ use Polidog\UsePhp\UsePHP;
  * ```php
  * public function onPost(): static
  * {
- *     $partial = $this->responder->handle($this, $_POST, $_SERVER);
+ *     $partial = $this->responder->handle($this, $_POST);
  *     if ($partial !== null) {
  *         $this->view = $partial;
  *     }
@@ -46,28 +46,39 @@ use Polidog\UsePhp\UsePHP;
  */
 final class UsePhpActionResponder
 {
+    private readonly UsePHP $app;
+
+    /**
+     * The responder always operates on the same {@see UsePHP} instance the
+     * renderer was configured with — sharing the snapshot serializer is
+     * critical, otherwise signature verification on the way in and snapshot
+     * embedding on the way out can disagree in subtle ways. We therefore
+     * derive the app from the renderer rather than letting the caller pass
+     * a second one.
+     */
     public function __construct(
         private readonly UsePhpRenderer $renderer,
-        private readonly UsePHP $app,
-    ) {}
+    ) {
+        $app = $renderer->getApp();
+        if ($app === null) {
+            throw new \InvalidArgumentException(
+                'UsePhpActionResponder requires a renderer constructed with a UsePHP instance '
+                . '(Tier 3 mode). Pass `app: $usePhp` to UsePhpRenderer\'s constructor.'
+            );
+        }
+        $this->app = $app;
+    }
 
     /**
      * Apply the submitted action and return the partial HTML, or `null` if
      * the request is not a usePHP action POST.
      *
-     * @param array<string, mixed>      $post   Typically `$_POST`.
-     * @param array<string, mixed>|null $server Typically `$_SERVER`. When
-     *                                          `X-UsePHP-Partial` header is
-     *                                          present we render a fragment;
-     *                                          otherwise this method still
-     *                                          returns the fragment so the
-     *                                          caller can decide what to do
-     *                                          (e.g. PRG redirect).
-     * @param array<string, mixed>      $props  Optional template props (the
-     *                                          same body the resource's
-     *                                          `onGet` would have set).
+     * @param array<string, mixed> $post  Typically `$_POST`.
+     * @param array<string, mixed> $props Optional template props (the same
+     *                                    body the resource's `onGet` would
+     *                                    have set).
      */
-    public function handle(ResourceObject $ro, array $post, ?array $server = null, array $props = []): ?string
+    public function handle(ResourceObject $ro, array $post, array $props = []): ?string
     {
         $actionJson = $post['_usephp_action'] ?? null;
         $instanceId = $post['_usephp_component'] ?? null;
@@ -84,6 +95,15 @@ final class UsePhpActionResponder
         }
         $action = Action::fromArray($actionData);
 
+        // The action's componentId, if present, MUST match `_usephp_component`.
+        // Otherwise a client could mutate state on a different component than
+        // the one whose snapshot we just rebuilt — the resulting setState
+        // would write to an instance whose state we then never serialise back
+        // (silent loss + cross-component tampering).
+        if ($action->componentId !== null && $action->componentId !== $instanceId) {
+            return null;
+        }
+
         $serializer = $this->app->getSnapshotSerializer();
 
         // Restore state from the client-supplied snapshot. We do this BEFORE
@@ -99,10 +119,10 @@ final class UsePhpActionResponder
         }
 
         // Apply the submitted action. Today only setState is supported —
-        // the same scope the standalone usePHP runtime handles.
+        // the same scope the standalone usePHP runtime handles. Always
+        // target the posted instance id (validated above).
         if ($action->type === 'setState') {
-            $componentId = $action->componentId ?? $instanceId;
-            $state = ComponentState::getInstance($componentId, $action->storageType ?? StorageType::Snapshot);
+            $state = ComponentState::getInstance($instanceId, $action->storageType ?? StorageType::Snapshot);
             $index = (int) ($action->payload['index'] ?? 0);
             $state->setState($index, $action->payload['value'] ?? null);
         }

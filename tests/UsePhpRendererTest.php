@@ -7,8 +7,13 @@ namespace Polidog\UsephpBearRenderer\Tests;
 use PHPUnit\Framework\TestCase;
 use Polidog\UsePhp\Psx\CompileCommand;
 use BEAR\Resource\ResourceObject;
+use Polidog\UsePhp\Runtime\ComponentState;
+use Polidog\UsePhp\Runtime\RenderContext;
+use Polidog\UsePhp\Storage\StorageFactory;
+use Polidog\UsePhp\UsePHP;
 use Polidog\UsephpBearRenderer\Tests\Fixtures\Resource\Page\Counter;
 use Polidog\UsephpBearRenderer\Tests\Fixtures\Resource\Page\CustomCounter;
+use Polidog\UsephpBearRenderer\Tests\Fixtures\Resource\Page\HookCounter;
 use Polidog\UsephpBearRenderer\UsePhpRenderer;
 
 class UsePhpRendererTest extends TestCase
@@ -20,6 +25,16 @@ class UsePhpRendererTest extends TestCase
     {
         $this->templateDir = __DIR__ . '/Fixtures/templates';
         $this->cacheDir = \sys_get_temp_dir() . '/psx-bear-renderer-test-' . \uniqid();
+        // Static caches in usePHP runtime classes can leak across tests
+        // (e.g. a Tier 3 case that follows a responder test would observe
+        // state populated by the responder's render). Reset before each
+        // case so every test sees a pristine runtime.
+        ComponentState::clearInstances();
+        RenderContext::clearApp();
+        // SnapshotStorage is a process-wide singleton inside StorageFactory,
+        // so clearing ComponentState alone leaves stored state values from
+        // earlier components in place. Reset the factory too.
+        StorageFactory::reset();
     }
 
     protected function tearDown(): void
@@ -30,6 +45,12 @@ class UsePhpRendererTest extends TestCase
             }
             @\rmdir($this->cacheDir);
         }
+        ComponentState::clearInstances();
+        RenderContext::clearApp();
+        // SnapshotStorage is a process-wide singleton inside StorageFactory,
+        // so clearing ComponentState alone leaves stored state values from
+        // earlier components in place. Reset the factory too.
+        StorageFactory::reset();
     }
 
     public function testRendersPsxTemplateUsingResourceBody(): void
@@ -208,5 +229,58 @@ class UsePhpRendererTest extends TestCase
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('PSX template not found');
         $renderer->render($ro);
+    }
+
+    public function testTier3RenderEmitsDataUsePhpWrapperAndSnapshot(): void
+    {
+        // Tier 3 needs RenderContext and ComponentState pristine — the
+        // static caches on those are session-scoped, so other tests that
+        // happen to call useState (none today) could otherwise leak in.
+        ComponentState::clearInstances();
+        RenderContext::clearApp();
+        // SnapshotStorage is a process-wide singleton inside StorageFactory,
+        // so clearing ComponentState alone leaves stored state values from
+        // earlier components in place. Reset the factory too.
+        StorageFactory::reset();
+
+        $usePhp = (new UsePHP())->setSnapshotSecret('test-secret');
+        $renderer = new UsePhpRenderer(
+            templateDir: $this->templateDir,
+            cacheDir: $this->cacheDir,
+            app: $usePhp,
+        );
+
+        $ro = new HookCounter();
+        $ro->onGet(count: 5, next: 6);
+        $html = $renderer->render($ro);
+
+        // The fc() wrapper should have produced a data-usephp wrapper with
+        // a signed snapshot the responder can later verify.
+        self::assertStringContainsString('data-usephp="', $html);
+        self::assertStringContainsString('data-usephp-snapshot=', $html);
+        self::assertStringContainsString('hook-counter', $html, 'snapshot wrapper should mention the fc() key');
+
+        // The current state value renders into the inner content.
+        self::assertStringContainsString('data-test="count">5<', $html);
+
+        // The +1 button's wire:click action carries the precomputed `next`
+        // (6) — confirms props made it through fc()'s render pass.
+        self::assertStringContainsString('&quot;value&quot;:6', $html);
+
+        self::assertSame($renderer->getApp(), $usePhp, 'getApp() should expose the configured UsePHP instance');
+    }
+
+    public function testTier1RemainsTheDefaultWhenAppIsNotProvided(): void
+    {
+        $renderer = new UsePhpRenderer($this->templateDir, $this->cacheDir);
+
+        self::assertNull($renderer->getApp(), 'No app means stateless / Tier 1 mode');
+
+        $ro = new Counter();
+        $ro->onGet(initial: 5);
+        $html = $renderer->render($ro);
+
+        // No snapshot wrapper for Tier 1.
+        self::assertStringNotContainsString('data-usephp-snapshot', $html);
     }
 }

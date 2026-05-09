@@ -8,7 +8,6 @@ use BEAR\Resource\RenderInterface;
 use BEAR\Resource\ResourceObject;
 use Polidog\UsePhp\Psx\CompileCommand;
 use Polidog\UsePhp\Psx\Compiler;
-use Polidog\UsePhp\Runtime\ComponentState;
 use Polidog\UsePhp\Runtime\Element;
 use Polidog\UsePhp\Runtime\RenderContext;
 use Polidog\UsePhp\Runtime\Renderer;
