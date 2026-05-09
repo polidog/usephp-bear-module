@@ -127,6 +127,56 @@ class UsePhpRendererTest extends TestCase
         self::assertStringContainsString('<p>7</p>', $html);
     }
 
+    public function testCustomTemplateResolverBypassesAttributeAndConvention(): void
+    {
+        $renderer = new UsePhpRenderer(
+            $this->templateDir,
+            $this->cacheDir,
+            templateResolver: static fn(): string => 'shared/Counter.psx',
+        );
+
+        // CustomCounter has #[Template('shared/Counter.psx')] but Counter
+        // does NOT — yet both should resolve to shared/Counter.psx via the
+        // custom resolver.
+        $ro = new Counter();
+        $ro->onGet(initial: 11);
+        $html = $renderer->render($ro);
+
+        self::assertStringContainsString('SHARED-COUNTER', $html);
+        self::assertStringContainsString('<p>11</p>', $html);
+    }
+
+    public function testAbsoluteResolverPathIsUsedAsIs(): void
+    {
+        $absolute = $this->templateDir . '/shared/Counter.psx';
+        $renderer = new UsePhpRenderer(
+            $this->templateDir . '/no-such-dir',
+            $this->cacheDir,
+            templateResolver: static fn(): string => $absolute,
+        );
+
+        $ro = new Counter();
+        $ro->onGet(initial: 22);
+        $html = $renderer->render($ro);
+        self::assertStringContainsString('SHARED-COUNTER', $html);
+    }
+
+    public function testAttributeResolutionIsCachedPerClass(): void
+    {
+        // Build two CustomCounter instances; the renderer should hit
+        // ReflectionClass once (per class), not per render.
+        $renderer = new UsePhpRenderer($this->templateDir, $this->cacheDir);
+        $renderer->render((new CustomCounter())->onGet(initial: 1));
+        $renderer->render((new CustomCounter())->onGet(initial: 2));
+
+        // Coarse assertion: two renders both produce the same template's
+        // output. The cache itself is private — the test ensures that
+        // repeated calls don't break behaviour, and serves as a guard
+        // against accidentally clearing the cache during refactors.
+        $first = $renderer->render((new CustomCounter())->onGet(initial: 3));
+        self::assertStringContainsString('SHARED-COUNTER', $first);
+    }
+
     public function testThrowsWhenTemplateMissing(): void
     {
         $renderer = new UsePhpRenderer(

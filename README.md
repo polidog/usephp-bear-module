@@ -125,7 +125,20 @@ The attribute is **class-level only**. `BEAR\Resource\RenderInterface::render($r
 ## Conventions
 
 - **Template path** = `<templateDir>/<everything-after-`\Resource\`-in-class-FQN>.psx`. Example: `MyApp\Resource\Page\Foo\Bar` → `<templateDir>/Page/Foo/Bar.psx`. Override per-resource with `#[Template]` (above).
-- **Custom resolution** — `UsePhpRenderer` is `final`, so wrap rather than subclass. Implement `BEAR\Resource\RenderInterface` in your own class and delegate to a `UsePhpRenderer` instance, intercepting `resolveTemplatePath` logic at the wrapper layer. Bind your wrapper instead of the default in your DI module.
+- **Custom resolution** — pass a `templateResolver` closure to `UsePhpRenderer` (or `UsePhpRendererModule`) to bypass the default `#[Template]` + FQCN logic entirely. The closure receives the `ResourceObject` and returns a path (relative to `templateDir` or absolute):
+
+  ```php
+  $this->install(new UsePhpRendererModule(
+      templateDir: $appMeta->appDir . '/templates',
+      cacheDir:    $appMeta->tmpDir . '/psx',
+      templateResolver: static function (\BEAR\Resource\ResourceObject $ro): string {
+          // e.g. database lookup, manifest, format suffix, ...
+          return $ro instanceof MyApp\Resource\Page\Counter ? 'shared/Counter.psx' : 'default.psx';
+      },
+  ));
+  ```
+
+  When set, the resolver fully replaces both `#[Template]` and the FQCN convention. Useful when you need a database-driven or context-aware mapping. `UsePhpRenderer` itself is `final` — extension is via this hook, not subclassing.
 - **Props** = `$ro->body` if it's already an array; `['body' => $ro->body]` otherwise; `[]` if null.
 - **Return type** = the template callable must return an `Element` or a string. Anything else throws.
 - **State / interactivity** = NOT supported in this Tier. Templates run statelessly. For `useState` / form actions inside BEAR you would need a different renderer that bridges `onPost` (out of scope here).
