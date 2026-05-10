@@ -1,5 +1,7 @@
 # Polidog.UsePhpBearModule
 
+English | [日本語](README.ja.md)
+
 Render BEAR.Resource `ResourceObject`s using [polidog/use-php](https://github.com/polidog/usePHP)'s PSX (TSX-like) templates.
 
 A drop-in `BEAR\Resource\RenderInterface` adapter — your BEAR resources stay stateless and BEAR-idiomatic, but their HTML representations are authored as `<div>{$count}</div>` instead of nested `H::div(children: [...])` calls.
