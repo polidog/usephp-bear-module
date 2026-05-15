@@ -12,7 +12,7 @@ A drop-in `BEAR\Resource\RenderInterface` adapter — your BEAR resources stay s
 composer require polidog/usephp-bear-module
 ```
 
-PHP 8.5+. Requires `bear/resource ^1.20` and `polidog/use-php` (currently `dev-main` until the next tagged release).
+PHP 8.5+. Requires `bear/resource ^1.20` and `polidog/use-php ^0.6.0`.
 
 ## Quick start
 
@@ -144,18 +144,75 @@ The attribute is **class-level only**. `BEAR\Resource\RenderInterface::render($r
   When set, the resolver fully replaces both `#[Template]` and the FQCN convention. Useful when you need a database-driven or context-aware mapping. `UsePhpRenderer` itself is `final` — extension is via this hook, not subclassing.
 - **Props** = `$ro->body` if it's already an array; `['body' => $ro->body]` otherwise; `[]` if null.
 - **Return type** = the template callable must return an `Element` or a string. Anything else throws.
-- **State / interactivity** = NOT supported in this Tier. Templates run statelessly. For `useState` / form actions inside BEAR you would need a different renderer that bridges `onPost` (out of scope here).
+- **State / interactivity** = stateless by default (Tier 1). Hooks + snapshot (`useState`, form actions) are opt-in (Tier 3) — pass a `UsePHP` instance to the renderer and use `UsePhpActionResponder` from `onPost`. CDN-friendly partial hydration is available via `UsePhpDeferredResponder` (see [Deferred rendering](#deferred-rendering)).
+
+## Deferred rendering
+
+usePHP ≥ 0.2 (stabilised through 0.6) supports **deferred rendering** —
+CDN-friendly partial hydration. A per-user component (logged-in name, cart
+count, A/B bucket) is split in two: the cacheable page renders only a
+fallback, and the real component is fetched after load via a separate
+`GET /_defer/{name}`. The page HTML stays user-independent and edge-cacheable;
+only the small deferred fetch is per-user. See usePHP's docs for the template
+side (`fc(..., defer: new Defer(...))` / `#[Defer]`), the opt-in localStorage
+client cache (`Defer::$localCache`), and explicit reload (`Defer::$reloadable`).
+
+The framework hook for the fetch is `UsePHP::handleDeferred()`. This package
+wraps it in `UsePhpDeferredResponder`, mirroring `UsePhpActionResponder`:
+
+```php
+use Polidog\UsePhpBearModule\UsePhpDeferredResponder;
+
+// A single resource catching the whole /_defer/... path:
+final class Defer extends ResourceObject
+{
+    public function __construct(private UsePhpDeferredResponder $responder) {}
+
+    public function onGet(): static
+    {
+        $html = $this->responder->handle($this);
+        if ($html === null) {
+            $this->code = 404;   // not a defer route
+            return $this;
+        }
+        $this->view = $html;
+        return $this;
+    }
+}
+```
+
+`handle()` builds the request from globals by default (pass a
+`Polidog\UsePhp\Router\RequestContext` to override), copies usePHP's
+per-endpoint `Cache-Control` onto `$ro->headers`, and maps an error status
+(400/404/500) onto `$ro->code` — so the response travels through BEAR's
+pipeline instead of raw `header()` / `http_response_code()` calls.
+
+The deferred registry must be populated on the **same** `UsePHP` instance the
+renderer was built with (the responder derives it from the renderer). Three
+ways, in order of convenience:
+- `loadComponentManifest()` — auto-loads the `deferred-manifest.php` sidecar
+  that `vendor/bin/usephp compile` writes for any `fc(..., defer: ...)`.
+- `registerDeferred($name, $fqcn, $cacheControl)` — explicit.
+- `register(MyDeferredComponent::class)` — for `#[Defer]` class components.
+
+This responder requires the renderer to be in Tier 3 mode (constructed with a
+`UsePHP` instance); it throws otherwise.
 
 ## Tier in the BEAR + usePHP integration
 
-This package is **Tier 1** — PSX as a stateless template engine. It deliberately does not use `useState`, hooks, or usePHP's form-action plumbing, because those collide with BEAR's resource-oriented model.
+- **Tier 1 — stateless templates (default).** PSX as a pure template engine:
+  no `useState`, no hooks, no form actions. The plain `UsePhpRenderer` /
+  `UsePhpRendererModule` path. This is the BEAR-idiomatic baseline.
+- **Tier 3 — hooks + snapshot (opt-in).** Pass a `UsePHP` instance to the
+  renderer so `fc()` / `useState` templates serialise state into a signed
+  snapshot, and use `UsePhpActionResponder` from `onPost` to apply
+  `_usephp_action` submissions and return the updated fragment.
+- **Deferred rendering (opt-in).** `UsePhpDeferredResponder` serves the
+  `/_defer/{name}` endpoints described above — orthogonal to Tier 1/3, it
+  only needs the renderer's `UsePHP` instance and a populated defer registry.
 
-If you need full usePHP interactivity inside BEAR, you'd write a Tier 3 renderer that:
-- Inspects `$_POST['_usephp_action']` from `onPost`
-- Re-runs the same template with updated state
-- Manages snapshots / CSRF
-
-That's a meaningful amount of glue and is best left to a dedicated package.
+Tier 1 stays the default because hooks/actions collide with BEAR's
+resource-oriented model unless you opt in deliberately.
 
 ## License
 

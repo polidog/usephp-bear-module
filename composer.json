@@ -21,7 +21,7 @@
     ],
     "require": {
         "php": ">=8.5",
-        "polidog/use-php": "dev-main@dev",
+        "polidog/use-php": "^0.6.0",
         "bear/resource": "^1.20",
         "ray/di": "^2.16"
     },

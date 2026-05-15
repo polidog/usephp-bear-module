@@ -12,7 +12,7 @@
 composer require polidog/usephp-bear-module
 ```
 
-PHP 8.5 以上が必要です。`bear/resource ^1.20` および `polidog/use-php` (次のタグリリースまでは `dev-main`) に依存します。
+PHP 8.5 以上が必要です。`bear/resource ^1.20` および `polidog/use-php ^0.6.0` に依存します。
 
 ## クイックスタート
 
@@ -144,18 +144,80 @@ final class Counter extends ResourceObject { ... }
   設定すると、リゾルバは `#[Template]` と FQCN 規約の両方を完全に置き換えます。DB 駆動やコンテキスト依存のマッピングが必要なときに便利です。`UsePhpRenderer` 自体は `final` であり、拡張はサブクラス化ではなくこのフックで行います。
 - **Props** = `$ro->body` が配列ならそのまま、それ以外は `['body' => $ro->body]`、`null` なら `[]`。
 - **戻り値の型** = テンプレート callable は `Element` または文字列を返さなければなりません。それ以外は例外を投げます。
-- **状態 / インタラクティビティ** = この Tier ではサポートしません。テンプレートはステートレスに実行されます。BEAR の中で `useState` やフォームアクションを使いたい場合は、`onPost` をブリッジする別のレンダラが必要です (本パッケージのスコープ外)。
+- **状態 / インタラクティビティ** = デフォルトはステートレス (Tier 1)。フック + スナップショット (`useState`、フォームアクション) はオプトイン (Tier 3) — レンダラに `UsePHP` インスタンスを渡し、`onPost` で `UsePhpActionResponder` を使います。CDN フレンドリーな部分的ハイドレーションは `UsePhpDeferredResponder` で利用できます ([遅延レンダリング](#遅延レンダリング) を参照)。
+
+## 遅延レンダリング
+
+usePHP 0.2 以降 (0.6 で安定化) は **遅延レンダリング** (CDN フレンドリーな
+部分的ハイドレーション) をサポートします。ユーザー固有のコンポーネント
+(ログイン名、カート数、A/B バケットなど) を 2 つに分割します。キャッシュ
+可能なページはフォールバックだけをレンダリングし、本物のコンポーネントは
+ロード後に別の `GET /_defer/{name}` で取得されます。ページ HTML は
+ユーザー非依存のままエッジキャッシュでき、ユーザーごとに必要なのは小さな
+遅延フェッチだけになります。テンプレート側 (`fc(..., defer: new Defer(...))`
+/ `#[Defer]`)、オプトインの localStorage クライアントキャッシュ
+(`Defer::$localCache`)、明示的リロード (`Defer::$reloadable`) については
+usePHP のドキュメントを参照してください。
+
+フェッチのフレームワークフックは `UsePHP::handleDeferred()` です。本パッケージ
+はそれを `UsePhpDeferredResponder` でラップし、`UsePhpActionResponder` と同じ
+形にしています:
+
+```php
+use Polidog\UsePhpBearModule\UsePhpDeferredResponder;
+
+// /_defer/... パス全体を受けるリソースを 1 つ用意します:
+final class Defer extends ResourceObject
+{
+    public function __construct(private UsePhpDeferredResponder $responder) {}
+
+    public function onGet(): static
+    {
+        $html = $this->responder->handle($this);
+        if ($html === null) {
+            $this->code = 404;   // defer ルートではない
+            return $this;
+        }
+        $this->view = $html;
+        return $this;
+    }
+}
+```
+
+`handle()` はデフォルトでグローバルからリクエストを構築し
+(`Polidog\UsePhp\Router\RequestContext` を渡せば上書き可能)、usePHP の
+エンドポイントごとの `Cache-Control` を `$ro->headers` にコピーし、エラー
+ステータス (400/404/500) を `$ro->code` にマップします。これにより、生の
+`header()` / `http_response_code()` 呼び出しではなく BEAR のパイプラインを
+通って応答が返ります。
+
+遅延レジストリは、レンダラを構築したのと **同じ** `UsePHP` インスタンスに
+登録する必要があります (レスポンダはレンダラからそれを取得します)。便利な
+順に 3 通り:
+- `loadComponentManifest()` — `vendor/bin/usephp compile` が
+  `fc(..., defer: ...)` に対して書き出す `deferred-manifest.php` サイドカーを
+  自動で読み込みます。
+- `registerDeferred($name, $fqcn, $cacheControl)` — 明示的に登録。
+- `register(MyDeferredComponent::class)` — `#[Defer]` クラスコンポーネント用。
+
+このレスポンダはレンダラが Tier 3 モード (`UsePHP` インスタンス付きで構築)
+であることを要求します。そうでなければ例外を投げます。
 
 ## BEAR + usePHP 統合における Tier
 
-このパッケージは **Tier 1** — ステートレスなテンプレートエンジンとしての PSX です。`useState`、フック、usePHP のフォームアクション機構は意図的に使っていません。これらは BEAR のリソース指向モデルと衝突するためです。
+- **Tier 1 — ステートレステンプレート (デフォルト)。** 純粋なテンプレート
+  エンジンとしての PSX。`useState`・フック・フォームアクションなし。素の
+  `UsePhpRenderer` / `UsePhpRendererModule` の経路で、BEAR らしい基準線です。
+- **Tier 3 — フック + スナップショット (オプトイン)。** レンダラに `UsePHP`
+  インスタンスを渡すと `fc()` / `useState` テンプレートが状態を署名付き
+  スナップショットへシリアライズします。`onPost` で `UsePhpActionResponder`
+  を使い `_usephp_action` 送信を適用して更新フラグメントを返します。
+- **遅延レンダリング (オプトイン)。** `UsePhpDeferredResponder` が上記の
+  `/_defer/{name}` エンドポイントを処理します。Tier 1/3 とは直交しており、
+  レンダラの `UsePHP` インスタンスと登録済みの defer レジストリだけが必要です。
 
-BEAR の中で usePHP のインタラクティビティをフルに使いたい場合は、以下を行う Tier 3 レンダラを書くことになります:
-- `onPost` から `$_POST['_usephp_action']` を取り出す
-- 同じテンプレートを更新後の状態で再実行する
-- スナップショット / CSRF を管理する
-
-このグルーは無視できない量になるため、専用パッケージに切り出すのが向いています。
+フック/アクションは、意図的にオプトインしない限り BEAR のリソース指向
+モデルと衝突するため、Tier 1 をデフォルトのままにしています。
 
 ## ライセンス
 
