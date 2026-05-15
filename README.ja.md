@@ -12,7 +12,7 @@
 composer require polidog/usephp-bear-module
 ```
 
-PHP 8.5 以上が必要です。`bear/resource ^1.20` および `polidog/use-php ^0.6.0` に依存します。
+PHP 8.5 以上が必要です。`bear/resource ^1.20` および `polidog/use-php >=0.6.0 <0.8.0` に依存します (0.6 / 0.7 のどちらでも変更なしで動作します — 遅延レンダリングアダプタは 0.7 で追加された加算的な `Defer::$localCacheTtl` に対して透過です)。
 
 ## クイックスタート
 
@@ -148,7 +148,7 @@ final class Counter extends ResourceObject { ... }
 
 ## 遅延レンダリング
 
-usePHP 0.2 以降 (0.6 で安定化) は **遅延レンダリング** (CDN フレンドリーな
+usePHP 0.2 以降 (0.7 で安定化) は **遅延レンダリング** (CDN フレンドリーな
 部分的ハイドレーション) をサポートします。ユーザー固有のコンポーネント
 (ログイン名、カート数、A/B バケットなど) を 2 つに分割します。キャッシュ
 可能なページはフォールバックだけをレンダリングし、本物のコンポーネントは
@@ -156,8 +156,11 @@ usePHP 0.2 以降 (0.6 で安定化) は **遅延レンダリング** (CDN フ�
 ユーザー非依存のままエッジキャッシュでき、ユーザーごとに必要なのは小さな
 遅延フェッチだけになります。テンプレート側 (`fc(..., defer: new Defer(...))`
 / `#[Defer]`)、オプトインの localStorage クライアントキャッシュ
-(`Defer::$localCache`)、明示的リロード (`Defer::$reloadable`) については
-usePHP のドキュメントを参照してください。
+(`Defer::$localCache`。0.7 で追加された任意の有効期限 `Defer::$localCacheTtl`
+付き)、明示的リロード (`Defer::$reloadable`) については usePHP の
+ドキュメントを参照してください。これらの `Defer` の設定はページ/コンポーネント
+側のもので、usePHP がプレースホルダのマークアップにレンダリングします。
+本アダプタは 0.7 の `localCacheTtl` を含めそれらすべてに対して透過です。
 
 フェッチのフレームワークフックは `UsePHP::handleDeferred()` です。本パッケージ
 はそれを `UsePhpDeferredResponder` でラップし、`UsePhpActionResponder` と同じ

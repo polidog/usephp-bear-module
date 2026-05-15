@@ -12,7 +12,7 @@ A drop-in `BEAR\Resource\RenderInterface` adapter — your BEAR resources stay s
 composer require polidog/usephp-bear-module
 ```
 
-PHP 8.5+. Requires `bear/resource ^1.20` and `polidog/use-php ^0.6.0`.
+PHP 8.5+. Requires `bear/resource ^1.20` and `polidog/use-php >=0.6.0 <0.8.0` (works unchanged on 0.6 and 0.7 — the deferred-rendering adapter is transparent to 0.7's additive `Defer::$localCacheTtl`).
 
 ## Quick start
 
@@ -148,14 +148,18 @@ The attribute is **class-level only**. `BEAR\Resource\RenderInterface::render($r
 
 ## Deferred rendering
 
-usePHP ≥ 0.2 (stabilised through 0.6) supports **deferred rendering** —
+usePHP ≥ 0.2 (stabilised through 0.7) supports **deferred rendering** —
 CDN-friendly partial hydration. A per-user component (logged-in name, cart
 count, A/B bucket) is split in two: the cacheable page renders only a
 fallback, and the real component is fetched after load via a separate
 `GET /_defer/{name}`. The page HTML stays user-independent and edge-cacheable;
 only the small deferred fetch is per-user. See usePHP's docs for the template
 side (`fc(..., defer: new Defer(...))` / `#[Defer]`), the opt-in localStorage
-client cache (`Defer::$localCache`), and explicit reload (`Defer::$reloadable`).
+client cache (`Defer::$localCache`, with an optional `Defer::$localCacheTtl`
+time bound added in 0.7), and explicit reload (`Defer::$reloadable`). These
+`Defer` knobs are page/component-side and rendered by usePHP into the
+placeholder markup — this adapter is transparent to all of them, including
+0.7's `localCacheTtl`.
 
 The framework hook for the fetch is `UsePHP::handleDeferred()`. This package
 wraps it in `UsePhpDeferredResponder`, mirroring `UsePhpActionResponder`:
